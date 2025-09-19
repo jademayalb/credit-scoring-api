@@ -1,0 +1,31 @@
+# Librairies de base
+numpy
+pandas
+matplotlib
+seaborn
+
+# Machine Learning
+scikit-learn==1.2.2
+xgboost
+lightgbm
+imblearn
+
+# MLOps & Tracking
+mlflow
+
+# API et utilitaires
+flask
+joblib
+
+# Visualisation et analyse avancée
+shap
+missingno
+
+# Data drift & monitoring
+evidently
+
+# Pour notebooks Jupyter
+jupyter
+
+# Optionnel (pour tests, scripts, etc.)
+pytest
