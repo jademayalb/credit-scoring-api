@@ -64,5 +64,3 @@ L’API sera disponible sur `http://localhost:5200`.
 
 - Gestion avancée des erreurs (404, 500)
 - Logs détaillés pour le debug et l’audit
-
->>>>>>> 6b491f8 (Ajout API V3 avec gestion avancée des erreurs et logs)
