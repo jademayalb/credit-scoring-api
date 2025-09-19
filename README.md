@@ -26,4 +26,3 @@ L’API sera disponible sur [http://localhost:5200](http://localhost:5200).
 ## Limitations de la V2
 
 - Pas de gestion avancée des erreurs ou logs détaillés
-- API conçue pour la prédiction simple sur un client à la fois
