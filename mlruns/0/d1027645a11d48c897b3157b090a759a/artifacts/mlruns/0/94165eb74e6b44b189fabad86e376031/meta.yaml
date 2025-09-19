@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/jadesuchaud/Projet%207/api_v3/artefacts/mlruns/0/94165eb74e6b44b189fabad86e376031/artifacts
+end_time: 1757683494525
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 94165eb74e6b44b189fabad86e376031
+run_name: log_artefacts_from_pkl
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757683494492
+status: 3
+tags: []
+user_id: jadesuchaud

@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/jadesuchaud/Projet%207/mlruns/0/bcc3c2fa81cb40d0b5d9a39aa7ab024a/artifacts
+end_time: 1757687581869
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: bcc3c2fa81cb40d0b5d9a39aa7ab024a
+run_name: register_model_and_artefacts
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757687576929
+status: 3
+tags: []
+user_id: jadesuchaud

@@ -1,0 +1,10 @@
+artifact_location: file:///Users/jadesuchaud/Projet%207/mlruns/0/models/m-e3d8058aeb5c412d91aac1f0620cb852/artifacts
+creation_timestamp: 1757686861501
+experiment_id: '0'
+last_updated_timestamp: 1757686865725
+model_id: m-e3d8058aeb5c412d91aac1f0620cb852
+model_type: null
+name: model
+source_run_id: d2b14200987540a58087cc7ddb4c0f10
+status: 2
+status_message: null
