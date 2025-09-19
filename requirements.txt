@@ -1,5 +1,7 @@
 flask
 pandas
 numpy
-joblib
 scikit-learn
+joblib
+lightgbm 
+requests 
