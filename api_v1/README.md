@@ -1,30 +1,23 @@
-Credit Scoring Project
+# API V1 - Credit Scoring
 
-## Description
+Cette API Flask permet de prédire le score de crédit d’un client.
 
-Ce projet vise à développer un modèle de scoring crédit pour la société \"Prêt à dépenser\".  
-Il inclut :
-- La première version de l’API de prédiction (api_v1)
-- Les notebooks de modélisation et d’analyse de data drift
-- Un rapport HTML Evidently pour le suivi du data drift
+## Lancement
 
-## Structure du projet
-
-- **api_v1/** : Première version de l’API Flask pour la prédiction du score client
-- **notebooks/** : Notebooks de modélisation et d’analyse de data drift
-- **tableau_html/** : Rapport HTML Evidently
-
-## Installation
-
-Installer les dépendances :
-\`\`\`
-pip install -r requirements.txt
-\`\`\`
-
-## Lancement de l’API
-
-\`\`\`
-cd api_v1
+```bash
 python api_v1.py
-\`\`\`
- 
+```
+
+## Endpoints
+
+- `/predict/<client_id>` : Retourne la prédiction pour un client donné.
+
+## Exemple d’appel
+
+```bash
+curl http://localhost:5000/predict/123456
+```
+
+## Limitations
+
+- Cette version ne gère pas encore [ex : la gestion avancée des erreurs, l’explicabilité locale, etc.].
