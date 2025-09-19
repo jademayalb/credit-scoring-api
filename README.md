@@ -9,27 +9,6 @@ Cette version améliore la robustesse de l’API en ajoutant une gestion avancé
 - Prédiction du risque de défaut pour un client donné (`client_id`)
 - Prétraitement complet des données (encodage, features métier, gestion des valeurs manquantes)
 - Utilisation du modèle de scoring entraîné
-<<<<<<< HEAD
-
-## Endpoints disponibles
-
-- **GET /predict/<client_id>**  
-  Retourne la probabilité de défaut, la décision (accepté/refusé), le seuil optimal, et le nom du modèle pour le client demandé.
-
-## Lancement de l’API
-
-Depuis ce dossier :
-
-```bash
-python api_v2.py
-```
-
-L’API sera disponible sur [http://localhost:5200](http://localhost:5200).
-
-## Limitations de la V2
-
-- Pas de gestion avancée des erreurs ou logs détaillés
-=======
 - **Gestion avancée des erreurs** : messages explicites pour les cas d’ID inexistant ou d’erreur interne
 - **Logs détaillés** : toutes les étapes importantes et erreurs sont loguées dans la console
 
@@ -49,18 +28,18 @@ En cas d’erreur (ID inexistant, problème interne), un message explicite et un
 ---
 
 ## Lancement de l’API
-## Nouveautés de la V3 :
-
 
 Depuis ce dossier :
 
-```
-python api_v3.py
+```bash
+python api_v3/app_v3.py
 ```
 
-L’API sera disponible sur `http://localhost:5200`.
+L’API sera disponible sur `http://localhost:5800`.
 
-## Nouveautés de la V3 :
+---
+
+## Nouveautés de la V3
 
 - Gestion avancée des erreurs (404, 500)
 - Logs détaillés pour le debug et l’audit
