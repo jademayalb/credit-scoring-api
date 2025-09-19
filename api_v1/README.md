@@ -35,6 +35,4 @@ L’API sera disponible sur [http://localhost:5003](http://localhost:5003).
 - Pas de gestion avancée des erreurs
 - API conçue pour des tests techniques et des démonstrations locales
 
----
-
-**Pour une prédiction réelle sur un client, utilisez la V2 de l’API.**
+--
