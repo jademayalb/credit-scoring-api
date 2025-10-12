@@ -1,3 +1,4 @@
+# Version Dim 12 oct 2025 19:01:05 CEST: Code modernisé pour charger depuis GitHub
 import os
 from flask import Flask, jsonify, request
 from joblib import load
