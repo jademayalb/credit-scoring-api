@@ -1,4 +1,3 @@
-# Version Dim 12 oct 2025 19:01:05 CEST: Code modernisé pour charger depuis GitHub
 import os
 from flask import Flask, jsonify, request
 from joblib import load
@@ -6,7 +5,9 @@ from sklearn.preprocessing import LabelEncoder
 import pandas as pd
 import numpy as np
 import logging
-import shap  # Ajout de la bibliothèque SHAP
+import shap
+import requests
+from io import StringIO
 
 # Configuration du logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -17,7 +18,51 @@ MODEL_PATH = os.path.join(BASE_DIR, "model_complet.pkl")
 SCALER_PATH = os.path.join(BASE_DIR, "scaler.pkl")
 IMPUTER_PATH = os.path.join(BASE_DIR, "imputer.pkl")
 FEATURES_PATH = os.path.join(BASE_DIR, "features.pkl")
-TEST_CSV_PATH = os.path.join(BASE_DIR, "application_test.csv")
+
+# URL vers le fichier CSV sur GitHub (version raw)
+GITHUB_CSV_URL = "https://raw.githubusercontent.com/jademayalb/credit-scoring-api/main/data/application_test.csv"
+
+# Cache pour les données
+_test_df_cache = None
+_last_fetch_time = 0
+_cache_ttl = 3600  # 1 heure en secondes
+
+def fetch_github_data():
+    """
+    Récupère les données depuis GitHub avec mise en cache
+    """
+    global _test_df_cache, _last_fetch_time
+    
+    current_time = int(pd.Timestamp.now().timestamp())
+    
+    # Utiliser le cache si disponible et pas trop vieux
+    if _test_df_cache is not None and (current_time - _last_fetch_time) < _cache_ttl:
+        logging.info("Utilisation des données en cache")
+        return _test_df_cache
+    
+    try:
+        logging.info(f"Téléchargement des données depuis GitHub: {GITHUB_CSV_URL}")
+        response = requests.get(GITHUB_CSV_URL)
+        response.raise_for_status()  # Vérifier les erreurs HTTP
+        
+        # Charger les données dans un DataFrame
+        data = StringIO(response.text)
+        df = pd.read_csv(data)
+        
+        # Mettre à jour le cache
+        _test_df_cache = df
+        _last_fetch_time = current_time
+        
+        logging.info(f"Données téléchargées avec succès: {len(df)} lignes")
+        return df
+    
+    except Exception as e:
+        logging.error(f"Erreur lors du téléchargement des données depuis GitHub: {e}")
+        # Si le cache existe, l'utiliser en cas d'erreur
+        if _test_df_cache is not None:
+            logging.warning("Utilisation des données en cache (obsolètes)")
+            return _test_df_cache
+        raise
 
 # Charger le modèle et les artefacts
 try:
@@ -29,7 +74,9 @@ try:
     threshold = model_data['optimal_threshold']
     model_name = model_data['model_name']
     poly_transformer = model_data.get('poly_transformer', None)
-    test_df = pd.read_csv(TEST_CSV_PATH)
+    
+    # Récupérer les données depuis GitHub
+    test_df = fetch_github_data()
     
     logging.info("Modèle et artefacts chargés avec succès.")
 except Exception as e:
@@ -97,6 +144,9 @@ app = Flask(__name__)
 @app.route('/predict/<int:client_id>', methods=['GET'])
 def predict_client(client_id):
     try:
+        # Récupérer les données depuis GitHub (avec cache)
+        test_df = fetch_github_data()
+        
         client_row = test_df[test_df['SK_ID_CURR'] == client_id]
         if client_row.empty:
             logging.warning(f"Client ID {client_id} introuvable.")
@@ -147,6 +197,7 @@ def get_shap_values(client_id):
             }), 503  # Service temporairement indisponible
         
         # Récupérer les données du client
+        test_df = fetch_github_data()
         client_row = test_df[test_df['SK_ID_CURR'] == client_id]
         if client_row.empty:
             logging.warning(f"Client ID {client_id} introuvable pour SHAP.")
@@ -201,6 +252,9 @@ def get_available_clients():
         limit = request.args.get('limit', default=100, type=int)
         offset = request.args.get('offset', default=0, type=int)
         
+        # Récupérer les données depuis GitHub (avec cache)
+        test_df = fetch_github_data()
+        
         client_ids = test_df['SK_ID_CURR'].tolist()
         paginated_ids = client_ids[offset:offset+limit]
         
@@ -226,6 +280,9 @@ def get_client_details(client_id):
     Renvoie les détails d'un client spécifique pour l'affichage dans le dashboard
     """
     try:
+        # Récupérer les données depuis GitHub (avec cache)
+        test_df = fetch_github_data()
+        
         client_row = test_df[test_df['SK_ID_CURR'] == client_id]
         if client_row.empty:
             return jsonify({
