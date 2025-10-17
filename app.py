@@ -8,9 +8,37 @@ import logging
 import shap
 import requests
 from io import StringIO
+from flask_swagger_ui import get_swaggerui_blueprint
+import logging.handlers
+from datetime import datetime
+import json
+from werkzeug.exceptions import BadRequest
 
-# Configuration du logger
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+# Configuration du logger avec rotation des fichiers
+log_file = os.path.join(os.path.dirname(__file__), "logs", "api.log")
+os.makedirs(os.path.dirname(log_file), exist_ok=True)
+
+# Configuration avancée du logging
+logger = logging.getLogger("api")
+logger.setLevel(logging.INFO)
+
+# Handler pour la console
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(console_format)
+
+# Handler pour les fichiers avec rotation (5 fichiers de 5 Mo max)
+file_handler = logging.handlers.RotatingFileHandler(
+    log_file, maxBytes=5*1024*1024, backupCount=5, encoding='utf-8'
+)
+file_handler.setLevel(logging.INFO)
+file_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(file_format)
+
+# Ajout des handlers
+logger.addHandler(console_handler)
+logger.addHandler(file_handler)
 
 # Chemin absolu pour les artefacts
 BASE_DIR = os.path.dirname(__file__)
@@ -37,12 +65,12 @@ def fetch_github_data():
     
     # Utiliser le cache si disponible et pas trop vieux
     if _test_df_cache is not None and (current_time - _last_fetch_time) < _cache_ttl:
-        logging.info("Utilisation des données en cache")
+        logger.info("Utilisation des données en cache")
         return _test_df_cache
     
     try:
-        logging.info(f"Téléchargement des données depuis GitHub: {GITHUB_CSV_URL}")
-        response = requests.get(GITHUB_CSV_URL)
+        logger.info(f"Téléchargement des données depuis GitHub: {GITHUB_CSV_URL}")
+        response = requests.get(GITHUB_CSV_URL, timeout=10)  # Ajout d'un timeout
         response.raise_for_status()  # Vérifier les erreurs HTTP
         
         # Charger les données dans un DataFrame
@@ -53,14 +81,25 @@ def fetch_github_data():
         _test_df_cache = df
         _last_fetch_time = current_time
         
-        logging.info(f"Données téléchargées avec succès: {len(df)} lignes")
+        logger.info(f"Données téléchargées avec succès: {len(df)} lignes")
         return df
     
-    except Exception as e:
-        logging.error(f"Erreur lors du téléchargement des données depuis GitHub: {e}")
-        # Si le cache existe, l'utiliser en cas d'erreur
+    except requests.exceptions.Timeout:
+        logger.error("Timeout lors du téléchargement des données depuis GitHub")
         if _test_df_cache is not None:
-            logging.warning("Utilisation des données en cache (obsolètes)")
+            logger.warning("Utilisation des données en cache (obsolètes)")
+            return _test_df_cache
+        raise
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Erreur lors du téléchargement des données depuis GitHub: {e}")
+        if _test_df_cache is not None:
+            logger.warning("Utilisation des données en cache (obsolètes)")
+            return _test_df_cache
+        raise
+    except Exception as e:
+        logger.error(f"Erreur inattendue lors du téléchargement des données: {e}")
+        if _test_df_cache is not None:
+            logger.warning("Utilisation des données en cache (obsolètes)")
             return _test_df_cache
         raise
 
@@ -78,12 +117,23 @@ try:
     # Récupérer les données depuis GitHub
     test_df = fetch_github_data()
     
-    logging.info("Modèle et artefacts chargés avec succès.")
+    logger.info("Modèle et artefacts chargés avec succès.")
 except Exception as e:
-    logging.error(f"Erreur lors du chargement du modèle ou des artefacts : {e}")
+    logger.error(f"Erreur lors du chargement du modèle ou des artefacts : {e}")
     raise
 
 def preprocess(df, features_model, poly_transformer=None):
+    """
+    Prétraite les données pour la prédiction selon le pipeline défini lors de l'entraînement
+    
+    Args:
+        df (pandas.DataFrame): DataFrame contenant les données à prétraiter
+        features_model (list): Liste des features attendues par le modèle
+        poly_transformer (PolynomialFeatures, optional): Transformer pour les features polynomiales
+        
+    Returns:
+        pandas.DataFrame: DataFrame prétraité
+    """
     df = df.copy()
     le = LabelEncoder()
     for col in df.columns:
@@ -128,28 +178,74 @@ try:
         try:
             # Utiliser TreeExplainer sans vérification d'additivité
             explainer = shap.TreeExplainer(model, check_additivity=False)
-            logging.info("Explainer SHAP initialisé avec TreeExplainer.")
+            logger.info("Explainer SHAP initialisé avec TreeExplainer.")
         except Exception as e1:
-            logging.warning(f"TreeExplainer a échoué: {e1}")
+            logger.warning(f"TreeExplainer a échoué: {e1}")
             explainer = None
     else:
-        logging.warning("Le modèle ne supporte pas predict_proba, SHAP ne sera pas disponible.")
+        logger.warning("Le modèle ne supporte pas predict_proba, SHAP ne sera pas disponible.")
         explainer = None
 except Exception as e:
-    logging.error(f"Erreur générale lors de l'initialisation de SHAP: {e}")
+    logger.error(f"Erreur générale lors de l'initialisation de SHAP: {e}")
     explainer = None
 
 app = Flask(__name__)
 
+# Configuration Swagger
+SWAGGER_URL = '/api/docs'  # URL pour accéder à la documentation Swagger
+API_URL = '/static/swagger.json'  # URL vers le fichier de spécification de l'API
+
+# Créer le blueprint pour Swagger UI
+swaggerui_blueprint = get_swaggerui_blueprint(
+    SWAGGER_URL,
+    API_URL,
+    config={
+        'app_name': "Credit Scoring API"
+    }
+)
+
+# Enregistrer le blueprint
+app.register_blueprint(swaggerui_blueprint, url_prefix=SWAGGER_URL)
+
+@app.route('/static/swagger.json')
+def get_swagger():
+    """Sert le fichier de spécification swagger"""
+    with open('static/swagger.json', 'r') as f:
+        return jsonify(json.load(f))
+
 @app.route('/predict/<int:client_id>', methods=['GET'])
 def predict_client(client_id):
+    """
+    Prédit la probabilité de défaut pour un client spécifique.
+    ---
+    parameters:
+      - name: client_id
+        in: path
+        type: integer
+        required: true
+        description: Identifiant unique du client
+    responses:
+      200:
+        description: Prédiction réussie
+      404:
+        description: Client introuvable
+      500:
+        description: Erreur interne
+    """
     try:
+        # Validation du client_id
+        if client_id <= 0:
+            return jsonify({
+                "erreur": "ID client invalide",
+                "status": "INVALID_REQUEST"
+            }), 400
+            
         # Récupérer les données depuis GitHub (avec cache)
         test_df = fetch_github_data()
         
         client_row = test_df[test_df['SK_ID_CURR'] == client_id]
         if client_row.empty:
-            logging.warning(f"Client ID {client_id} introuvable.")
+            logger.warning(f"Client ID {client_id} introuvable.")
             return jsonify({
                 "erreur": f"Client ID {client_id} introuvable",
                 "status": "NOT_FOUND"
@@ -161,7 +257,7 @@ def predict_client(client_id):
         proba = model.predict_proba(X_scaled)[0, 1]
         decision = "REFUSÉ" if proba >= threshold else "ACCEPTÉ"
 
-        logging.info(f"Prédiction réalisée pour client {client_id} : proba={proba:.4f}, décision={decision}")
+        logger.info(f"Prédiction réalisée pour client {client_id} : proba={proba:.4f}, décision={decision}")
 
         return jsonify({
             "client_id": int(client_id),
@@ -171,8 +267,15 @@ def predict_client(client_id):
             "model_name": model_name,
             "status": "OK"
         })
+    except BadRequest as e:
+        logger.error(f"Erreur de requête pour client {client_id} : {e}")
+        return jsonify({
+            "erreur": "Requête invalide",
+            "details": str(e),
+            "status": "INVALID_REQUEST"
+        }), 400
     except Exception as e:
-        logging.error(f"Erreur interne lors de la prédiction pour client {client_id} : {e}")
+        logger.error(f"Erreur interne lors de la prédiction pour client {client_id} : {e}")
         return jsonify({
             "erreur": "Erreur interne du serveur",
             "details": str(e),
@@ -185,11 +288,54 @@ def get_shap_values(client_id):
     """
     Calcule les valeurs SHAP locales pour un client spécifique.
     Ces valeurs expliquent la contribution de chaque feature à la prédiction.
+    ---
+    parameters:
+      - name: client_id
+        in: path
+        type: integer
+        required: true
+        description: Identifiant unique du client
+      - name: limit
+        in: query
+        type: integer
+        required: false
+        default: 20
+        description: Nombre maximum de features à retourner
+    responses:
+      200:
+        description: Valeurs SHAP calculées avec succès
+      400:
+        description: Requête invalide
+      404:
+        description: Client introuvable
+      503:
+        description: Explainer SHAP indisponible
     """
     try:
+        # Validation du client_id
+        if client_id <= 0:
+            return jsonify({
+                "erreur": "ID client invalide",
+                "status": "INVALID_REQUEST"
+            }), 400
+            
+        # Récupérer le paramètre limit
+        try:
+            limit = int(request.args.get('limit', 20))
+            if limit <= 0:
+                return jsonify({
+                    "erreur": "Le paramètre 'limit' doit être positif",
+                    "status": "INVALID_REQUEST"
+                }), 400
+        except ValueError:
+            return jsonify({
+                "erreur": "Le paramètre 'limit' doit être un entier",
+                "status": "INVALID_REQUEST"
+            }), 400
+        
         # Vérifier si l'explainer est disponible
         if explainer is None:
-            logging.warning(f"L'explainer SHAP n'est pas disponible pour le client {client_id}")
+            logger.warning(f"L'explainer SHAP n'est pas disponible pour le client {client_id}")
             return jsonify({
                 "erreur": "L'explainer SHAP n'est pas disponible",
                 "message": "Impossible de calculer les explications SHAP pour ce modèle",
@@ -200,7 +346,7 @@ def get_shap_values(client_id):
         test_df = fetch_github_data()
         client_row = test_df[test_df['SK_ID_CURR'] == client_id]
         if client_row.empty:
-            logging.warning(f"Client ID {client_id} introuvable pour SHAP.")
+            logger.warning(f"Client ID {client_id} introuvable pour SHAP.")
             return jsonify({
                 "erreur": f"Client ID {client_id} introuvable",
                 "status": "NOT_FOUND"
@@ -225,11 +371,11 @@ def get_shap_values(client_id):
         for i, feature_name in enumerate(features):
             shap_dict[feature_name] = float(shap_values[0][i])
         
-        # Récupérer les 20 features avec les plus fortes valeurs SHAP (en valeur absolue)
-        shap_items = sorted(shap_dict.items(), key=lambda x: abs(x[1]), reverse=True)[:20]
+        # Récupérer les features avec les plus fortes valeurs SHAP (en valeur absolue)
+        shap_items = sorted(shap_dict.items(), key=lambda x: abs(x[1]), reverse=True)[:limit]
         top_shap_dict = {k: v for k, v in shap_items}
         
-        logging.info(f"Valeurs SHAP calculées pour client {client_id}")
+        logger.info(f"Valeurs SHAP calculées pour client {client_id}")
         
         return jsonify({
             "client_id": int(client_id),
@@ -237,8 +383,15 @@ def get_shap_values(client_id):
             "status": "OK"
         })
         
+    except BadRequest as e:
+        logger.error(f"Erreur de requête pour les valeurs SHAP du client {client_id}: {e}")
+        return jsonify({
+            "erreur": "Requête invalide",
+            "details": str(e),
+            "status": "INVALID_REQUEST"
+        }), 400
     except Exception as e:
-        logging.error(f"Erreur lors du calcul des valeurs SHAP pour client {client_id}: {e}")
+        logger.error(f"Erreur lors du calcul des valeurs SHAP pour client {client_id}: {e}")
         return jsonify({
             "erreur": "Erreur lors du calcul des valeurs SHAP",
             "details": str(e),
@@ -248,9 +401,45 @@ def get_shap_values(client_id):
 # Ajouter un endpoint pour les clients disponibles
 @app.route('/clients', methods=['GET'])
 def get_available_clients():
+    """
+    Retourne la liste des IDs clients disponibles.
+    ---
+    parameters:
+      - name: limit
+        in: query
+        type: integer
+        required: false
+        default: 100
+        description: Nombre maximum de clients à retourner
+      - name: offset
+        in: query
+        type: integer
+        required: false
+        default: 0
+        description: Index de départ pour la pagination
+    responses:
+      200:
+        description: Liste des clients récupérée avec succès
+      400:
+        description: Paramètres de requête invalides
+      500:
+        description: Erreur interne du serveur
+    """
     try:
-        limit = request.args.get('limit', default=100, type=int)
-        offset = request.args.get('offset', default=0, type=int)
+        # Validation des paramètres
+        try:
+            limit = int(request.args.get('limit', 100))
+            offset = int(request.args.get('offset', 0))
+            if limit <= 0 or offset < 0:
+                return jsonify({
+                    "erreur": "Les paramètres 'limit' et 'offset' doivent être positifs",
+                    "status": "INVALID_REQUEST"
+                }), 400
+        except ValueError:
+            return jsonify({
+                "erreur": "Les paramètres 'limit' et 'offset' doivent être des entiers",
+                "status": "INVALID_REQUEST"
+            }), 400
         
         # Récupérer les données depuis GitHub (avec cache)
         test_df = fetch_github_data()
@@ -265,8 +454,15 @@ def get_available_clients():
             "offset": offset,
             "status": "OK"
         })
+    except BadRequest as e:
+        logger.error(f"Erreur de requête pour la liste des clients: {e}")
+        return jsonify({
+            "erreur": "Requête invalide",
+            "details": str(e),
+            "status": "INVALID_REQUEST"
+        }), 400
     except Exception as e:
-        logging.error(f"Erreur lors de la récupération des IDs clients: {e}")
+        logger.error(f"Erreur lors de la récupération des IDs clients: {e}")
         return jsonify({
             "erreur": "Erreur lors de la récupération des IDs clients",
             "details": str(e),
@@ -277,9 +473,32 @@ def get_available_clients():
 @app.route('/client/<int:client_id>/details', methods=['GET'])
 def get_client_details(client_id):
     """
-    Renvoie les détails d'un client spécifique pour l'affichage dans le dashboard
+    Renvoie les détails d'un client spécifique pour l'affichage dans le dashboard.
+    ---
+    parameters:
+      - name: client_id
+        in: path
+        type: integer
+        required: true
+        description: Identifiant unique du client
+    responses:
+      200:
+        description: Détails du client récupérés avec succès
+      400:
+        description: ID client invalide
+      404:
+        description: Client introuvable
+      500:
+        description: Erreur interne du serveur
     """
     try:
+        # Validation du client_id
+        if client_id <= 0:
+            return jsonify({
+                "erreur": "ID client invalide",
+                "status": "INVALID_REQUEST"
+            }), 400
+            
         # Récupérer les données depuis GitHub (avec cache)
         test_df = fetch_github_data()
         
@@ -342,18 +561,82 @@ def get_client_details(client_id):
         }
         
         return jsonify(response)
+    except BadRequest as e:
+        logger.error(f"Erreur de requête pour les détails du client {client_id}: {e}")
+        return jsonify({
+            "erreur": "Requête invalide",
+            "details": str(e),
+            "status": "INVALID_REQUEST"
+        }), 400
     except Exception as e:
-        logging.error(f"Erreur lors de la récupération des détails du client {client_id}: {e}")
+        logger.error(f"Erreur lors de la récupération des détails du client {client_id}: {e}")
         return jsonify({
             "erreur": "Erreur lors de la récupération des détails du client",
             "details": str(e),
             "status": "ERROR"
         }), 500
 
+# Endpoint pour vérifier l'état de l'API
+@app.route('/health', methods=['GET'])
+def health_check():
+    """
+    Vérifie si l'API est fonctionnelle.
+    ---
+    responses:
+      200:
+        description: API fonctionnelle
+      500:
+        description: Problème avec l'API
+    """
+    try:
+        # Vérifier si les composants critiques sont chargés
+        if model is None or features is None:
+            return jsonify({
+                "status": "ERROR",
+                "message": "Modèle ou features non chargés"
+            }), 500
+        
+        return jsonify({
+            "status": "OK",
+            "version": "1.0.0",
+            "model": model_name,
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Erreur lors du health check: {e}")
+        return jsonify({
+            "status": "ERROR",
+            "message": str(e)
+        }), 500
+
+@app.errorhandler(404)
+def not_found(error):
+    """Gère les erreurs 404 (page non trouvée)"""
+    logger.warning(f"Erreur 404: {request.path}")
+    return jsonify({
+        "erreur": "Ressource introuvable",
+        "path": request.path,
+        "status": "NOT_FOUND"
+    }), 404
+
+@app.errorhandler(400)
+def bad_request(error):
+    """Gère les erreurs 400 (mauvaise requête)"""
+    logger.warning(f"Erreur 400: {error}")
+    return jsonify({
+        "erreur": "Requête invalide",
+        "details": str(error),
+        "status": "INVALID_REQUEST"
+    }), 400
+
 @app.errorhandler(500)
 def internal_error(error):
-    logging.error(f"Erreur 500 : {error}")
-    return jsonify({"erreur": "Erreur interne du serveur"}), 500
+    """Gère les erreurs 500 (erreur interne du serveur)"""
+    logger.error(f"Erreur 500 : {error}")
+    return jsonify({
+        "erreur": "Erreur interne du serveur",
+        "status": "ERROR"
+    }), 500
 
 if __name__ == "__main__":
     app.run(debug=True, port=5800)

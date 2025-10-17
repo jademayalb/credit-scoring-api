@@ -8,4 +8,5 @@ joblib==1.2.0
 shap==0.41.0
 lightgbm==4.6.0
 requests>=2.25.1
-
+flask-swagger-ui==4.11.1
+pytest==7.3.1

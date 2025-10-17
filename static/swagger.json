@@ -1,0 +1,227 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "API de Scoring Crédit",
+    "description": "API pour le calcul de score de crédit et l'explication des décisions",
+    "version": "1.0.0"
+  },
+  "basePath": "/",
+  "schemes": ["http", "https"],
+  "consumes": ["application/json"],
+  "produces": ["application/json"],
+  "paths": {
+    "/predict/{client_id}": {
+      "get": {
+        "summary": "Prédit la probabilité de défaut pour un client",
+        "description": "Récupère les informations du client, calcule sa probabilité de défaut et retourne la décision",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "description": "Identifiant unique du client",
+            "required": true,
+            "type": "integer",
+            "format": "int64"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prédiction réussie",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "client_id": {
+                  "type": "integer",
+                  "description": "ID du client"
+                },
+                "probability": {
+                  "type": "number",
+                  "format": "float",
+                  "description": "Probabilité de défaut (entre 0 et 1)"
+                },
+                "threshold": {
+                  "type": "number",
+                  "format": "float",
+                  "description": "Seuil de décision"
+                },
+                "decision": {
+                  "type": "string",
+                  "enum": ["ACCEPTÉ", "REFUSÉ"],
+                  "description": "Décision finale"
+                },
+                "model_name": {
+                  "type": "string",
+                  "description": "Nom du modèle utilisé"
+                },
+                "status": {
+                  "type": "string",
+                  "description": "Statut de la requête"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requête invalide"
+          },
+          "404": {
+            "description": "Client introuvable"
+          },
+          "500": {
+            "description": "Erreur interne du serveur"
+          }
+        }
+      }
+    },
+    "/shap_values/{client_id}": {
+      "get": {
+        "summary": "Récupère les valeurs SHAP pour un client",
+        "description": "Calcule les valeurs SHAP locales expliquant la prédiction du modèle pour un client spécifique",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "description": "Identifiant unique du client",
+            "required": true,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Nombre maximum de features à retourner",
+            "required": false,
+            "type": "integer",
+            "default": 20
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Valeurs SHAP calculées avec succès"
+          },
+          "400": {
+            "description": "Requête invalide"
+          },
+          "404": {
+            "description": "Client introuvable"
+          },
+          "503": {
+            "description": "Explainer SHAP indisponible"
+          }
+        }
+      }
+    },
+    "/clients": {
+      "get": {
+        "summary": "Liste des clients disponibles",
+        "description": "Retourne la liste des IDs clients disponibles",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Nombre maximum de clients à retourner",
+            "required": false,
+            "type": "integer",
+            "default": 100
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Index de départ pour la pagination",
+            "required": false,
+            "type": "integer",
+            "default": 0
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste des clients récupérée avec succès"
+          },
+          "400": {
+            "description": "Paramètres de requête invalides"
+          },
+          "500": {
+            "description": "Erreur interne du serveur"
+          }
+        }
+      }
+    },
+    "/client/{client_id}/details": {
+      "get": {
+        "summary": "Détails d'un client",
+        "description": "Récupère les informations détaillées d'un client pour affichage dans le dashboard",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "description": "Identifiant unique du client",
+            "required": true,
+            "type": "integer",
+            "format": "int64"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Détails du client récupérés avec succès"
+          },
+          "400": {
+            "description": "ID client invalide"
+          },
+          "404": {
+            "description": "Client introuvable"
+          },
+          "500": {
+            "description": "Erreur interne du serveur"
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "État de santé de l'API",
+        "description": "Vérifie si l'API est fonctionnelle",
+        "responses": {
+          "200": {
+            "description": "API fonctionnelle"
+          },
+          "500": {
+            "description": "Problème avec l'API"
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "Prediction": {
+      "type": "object",
+      "properties": {
+        "client_id": {
+          "type": "integer",
+          "description": "ID du client"
+        },
+        "probability": {
+          "type": "number",
+          "format": "float",
+          "description": "Probabilité de défaut (entre 0 et 1)"
+        },
+        "threshold": {
+          "type": "number",
+          "format": "float",
+          "description": "Seuil de décision"
+        },
+        "decision": {
+          "type": "string",
+          "enum": ["ACCEPTÉ", "REFUSÉ"],
+          "description": "Décision finale"
+        },
+        "model_name": {
+          "type": "string",
+          "description": "Nom du modèle utilisé"
+        },
+        "status": {
+          "type": "string",
+          "description": "Statut de la requête"
+        }
+      }
+    }
+  }
+}
