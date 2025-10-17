@@ -55,6 +55,50 @@ _test_df_cache = None
 _last_fetch_time = 0
 _cache_ttl = 3600  # 1 heure en secondes
 
+# Dictionnaire des descriptions pour les features
+FEATURE_DESCRIPTIONS = {
+    "EXT_SOURCE_1": "Score normalisé - Source externe 1",
+    "EXT_SOURCE_2": "Score normalisé - Source externe 2",
+    "EXT_SOURCE_3": "Score normalisé - Source externe 3",
+    "DAYS_BIRTH": "Âge (en jours, négatif)",
+    "DAYS_EMPLOYED": "Nombre de jours d'emploi",
+    "AMT_INCOME_TOTAL": "Revenu total du client",
+    "AMT_CREDIT": "Montant du crédit",
+    "AMT_ANNUITY": "Montant de l'annuité",
+    "DAYS_ID_PUBLISH": "Nombre de jours depuis la publication de la carte d'identité",
+    "AMT_GOODS_PRICE": "Prix des biens financés",
+    "CODE_GENDER": "Genre du client",
+    "NAME_EDUCATION_TYPE": "Type d'éducation",
+    "NAME_FAMILY_STATUS": "Statut familial",
+    "CNT_CHILDREN": "Nombre d'enfants",
+    "CNT_FAM_MEMBERS": "Nombre de membres dans la famille",
+    "NAME_INCOME_TYPE": "Type de revenu",
+    "CREDIT_INCOME_PERCENT": "Pourcentage de crédit par rapport au revenu",
+    "ANNUITY_INCOME_PERCENT": "Pourcentage de l'annuité par rapport au revenu",
+    "CREDIT_TERM": "Terme du crédit (années)",
+    "DAYS_EMPLOYED_PERCENT": "Pourcentage des jours d'emploi par rapport à l'âge"
+}
+
+# Dictionnaire de mapping entre noms de features SHAP et les propriétés client
+FEATURE_MAPPING = {
+    "EXT_SOURCE_1": {"section": "features", "key": "EXT_SOURCE_1"},
+    "EXT_SOURCE_2": {"section": "features", "key": "EXT_SOURCE_2"},
+    "EXT_SOURCE_3": {"section": "features", "key": "EXT_SOURCE_3"},
+    "DAYS_BIRTH": {"section": "personal_info", "key": "age", "transform": lambda x: abs(x) / 365.25},
+    "DAYS_EMPLOYED": {"section": "personal_info", "key": "employment_years", "transform": lambda x: abs(x) / 365.25 if x != 365243 else 0},
+    "AMT_INCOME_TOTAL": {"section": "personal_info", "key": "income"},
+    "AMT_CREDIT": {"section": "credit_info", "key": "amount"},
+    "AMT_ANNUITY": {"section": "credit_info", "key": "annuity"},
+    "AMT_GOODS_PRICE": {"section": "credit_info", "key": "goods_price"},
+    "CODE_GENDER_F": {"section": "personal_info", "key": "gender", "transform": lambda x: x == "F"},
+    "CODE_GENDER_M": {"section": "personal_info", "key": "gender", "transform": lambda x: x == "M"},
+    "NAME_INCOME_TYPE_Working": {"section": "personal_info", "key": "employment_type", "transform": lambda x: x == "Working"},
+    "CREDIT_INCOME_PERCENT": {"computed": True, "formula": lambda client: client["credit_info"]["amount"] / client["personal_info"]["income"] if client["personal_info"]["income"] > 0 else 0},
+    "ANNUITY_INCOME_PERCENT": {"computed": True, "formula": lambda client: client["credit_info"]["annuity"] / client["personal_info"]["income"] if client["personal_info"]["income"] > 0 else 0},
+    "CREDIT_TERM": {"section": "credit_info", "key": "credit_term"},
+    "DAYS_EMPLOYED_PERCENT": {"computed": True, "formula": lambda client: client["personal_info"]["employment_years"] / client["personal_info"]["age"] if client["personal_info"]["age"] > 0 else 0}
+}
+
 def fetch_github_data():
     """
     Récupère les données depuis GitHub avec mise en cache
@@ -394,6 +438,179 @@ def get_shap_values(client_id):
         logger.error(f"Erreur lors du calcul des valeurs SHAP pour client {client_id}: {e}")
         return jsonify({
             "erreur": "Erreur lors du calcul des valeurs SHAP",
+            "details": str(e),
+            "status": "ERROR"
+        }), 500
+
+# NOUVEL ENDPOINT POUR LES VALEURS SHAP AVEC MAPPING
+@app.route('/shap_values_mapped/<int:client_id>', methods=['GET'])
+def get_shap_values_mapped(client_id):
+    """
+    Calcule les valeurs SHAP locales pour un client spécifique et les mappe aux données client.
+    Cette version ajoute des informations supplémentaires pour faciliter l'utilisation par le frontend.
+    ---
+    parameters:
+      - name: client_id
+        in: path
+        type: integer
+        required: true
+        description: Identifiant unique du client
+      - name: limit
+        in: query
+        type: integer
+        required: false
+        default: 20
+        description: Nombre maximum de features à retourner
+    responses:
+      200:
+        description: Valeurs SHAP calculées et mappées avec succès
+      400:
+        description: Requête invalide
+      404:
+        description: Client introuvable
+      503:
+        description: Explainer SHAP indisponible
+    """
+    try:
+        # Validation du client_id
+        if client_id <= 0:
+            return jsonify({
+                "erreur": "ID client invalide",
+                "status": "INVALID_REQUEST"
+            }), 400
+            
+        # Récupérer le paramètre limit
+        try:
+            limit = int(request.args.get('limit', 20))
+            if limit <= 0:
+                return jsonify({
+                    "erreur": "Le paramètre 'limit' doit être positif",
+                    "status": "INVALID_REQUEST"
+                }), 400
+        except ValueError:
+            return jsonify({
+                "erreur": "Le paramètre 'limit' doit être un entier",
+                "status": "INVALID_REQUEST"
+            }), 400
+        
+        # Vérifier si l'explainer est disponible
+        if explainer is None:
+            logger.warning(f"L'explainer SHAP n'est pas disponible pour le client {client_id}")
+            return jsonify({
+                "erreur": "L'explainer SHAP n'est pas disponible",
+                "message": "Impossible de calculer les explications SHAP pour ce modèle",
+                "status": "ERROR"
+            }), 503  # Service temporairement indisponible
+        
+        # Récupérer les données du client
+        test_df = fetch_github_data()
+        client_row = test_df[test_df['SK_ID_CURR'] == client_id]
+        if client_row.empty:
+            logger.warning(f"Client ID {client_id} introuvable pour SHAP.")
+            return jsonify({
+                "erreur": f"Client ID {client_id} introuvable",
+                "status": "NOT_FOUND"
+            }), 404
+        
+        # Prétraiter les données comme pour la prédiction
+        client_processed = preprocess(client_row, features, poly_transformer)
+        X_imputed = imputer.transform(client_processed)
+        X_scaled = scaler.transform(X_imputed)
+        
+        # Calculer les valeurs SHAP
+        shap_values = explainer.shap_values(X_scaled)
+        
+        # Pour les modèles avec plusieurs classes, prendre la classe positive (défaut)
+        if isinstance(shap_values, list):
+            shap_values = shap_values[1]  # Classe positive (défaut de paiement)
+        
+        # Créer un dictionnaire des valeurs SHAP par feature
+        shap_dict = {}
+        
+        # Mapper chaque valeur SHAP à sa feature
+        for i, feature_name in enumerate(features):
+            shap_dict[feature_name] = float(shap_values[0][i])
+        
+        # Récupérer les features avec les plus fortes valeurs SHAP (en valeur absolue)
+        shap_items = sorted(shap_dict.items(), key=lambda x: abs(x[1]), reverse=True)[:limit]
+        
+        # Récupérer les détails du client pour mapper les valeurs SHAP
+        response_client = get_client_details(client_id)
+        if response_client.status_code != 200:
+            return response_client
+        
+        client_details = json.loads(response_client.data)
+        
+        # Préparer les résultats mappés
+        mapped_results = []
+        
+        for feature_name, shap_value in shap_items:
+            # Déterminer le nom d'affichage pour la feature
+            display_name = FEATURE_DESCRIPTIONS.get(feature_name, feature_name)
+            
+            # Préparer un dictionnaire pour ce résultat
+            result = {
+                "feature": feature_name,
+                "display_name": display_name,
+                "shap_value": float(shap_value),
+                "impact_direction": "Favorable" if shap_value < 0 else "Défavorable",
+                "impact_value": abs(round(shap_value, 4)),
+                "real_value": "N/A"
+            }
+            
+            # Essayer de trouver la valeur réelle
+            if feature_name in FEATURE_MAPPING:
+                mapping = FEATURE_MAPPING[feature_name]
+                
+                if "computed" in mapping and mapping["computed"]:
+                    # Pour les valeurs calculées à la volée
+                    try:
+                        result["real_value"] = mapping["formula"](client_details)
+                    except Exception as e:
+                        logger.warning(f"Erreur lors du calcul de la valeur réelle pour {feature_name}: {e}")
+                        result["real_value"] = "N/A"
+                else:
+                    # Pour les valeurs directement accessibles
+                    section = mapping.get("section")
+                    key = mapping.get("key")
+                    
+                    if section in client_details and key in client_details[section]:
+                        value = client_details[section][key]
+                        
+                        # Appliquer une transformation si nécessaire
+                        if "transform" in mapping and callable(mapping["transform"]):
+                            try:
+                                value = mapping["transform"](value)
+                            except Exception as e:
+                                logger.warning(f"Erreur lors de la transformation pour {feature_name}: {e}")
+                        
+                        result["real_value"] = value
+            
+            # Formater la valeur si c'est un nombre
+            if isinstance(result["real_value"], (int, float)):
+                result["real_value"] = round(result["real_value"], 2)
+            
+            mapped_results.append(result)
+        
+        logger.info(f"Valeurs SHAP mappées calculées pour client {client_id}")
+        
+        return jsonify({
+            "client_id": int(client_id),
+            "mapped_shap_values": mapped_results,
+            "status": "OK"
+        })
+        
+    except BadRequest as e:
+        logger.error(f"Erreur de requête pour les valeurs SHAP mappées du client {client_id}: {e}")
+        return jsonify({
+            "erreur": "Requête invalide",
+            "details": str(e),
+            "status": "INVALID_REQUEST"
+        }), 400
+    except Exception as e:
+        logger.error(f"Erreur lors du calcul des valeurs SHAP mappées pour client {client_id}: {e}")
+        return jsonify({
+            "erreur": "Erreur lors du calcul des valeurs SHAP mappées",
             "details": str(e),
             "status": "ERROR"
         }), 500
